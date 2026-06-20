@@ -61,7 +61,41 @@ app.post("/api/tickets", async (req, res) => {
   }
 });
 
+// POST /api/bookings — books seats and sets status to "waiting for confirm"
+app.post("/api/bookings", async (req, res) => {
+  try {
+    const { ticket_id, user_id, userName, userEmail, seatsBooked = 1 } = req.body;
 
+    if (!ticket_id || !user_id) {
+      return res.status(400).json({ error: "ticket_id and user_id are required" });
+    }
+
+    const ticket = await findTicketById(ticket_id);
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+    if (ticket.quantity < seatsBooked) return res.status(400).json({ error: "Not enough tickets available" });
+
+    // Decrement ticket availability count
+    await tickets.updateOne({ _id: ticket._id }, { $inc: { quantity: -Number(seatsBooked) } });
+
+    const newBooking = {
+      ticket_id,
+      user_id,
+      userName,
+      userEmail,
+      seatsBooked: Number(seatsBooked),
+      totalPrice: Number(ticket.price) * Number(seatsBooked),
+      ticketTitle: ticket.title,
+      departureDateTime: ticket.departureDateTime,
+      status: "waiting for confirm", // Workflow change 1: default status
+      bookedAt: new Date(),
+    };
+
+    const result = await bookings.insertOne(newBooking);
+    res.status(201).json({ ...newBooking, _id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/bookings — returns bookings for a user (?user_id=) or a vendor (?vendor_id=)
 app.get("/api/bookings", async (req, res) => {
