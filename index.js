@@ -74,6 +74,30 @@ app.post("/api/tickets", async (req, res) => {
   }
 });
 
+// PATCH /api/tickets/:id — admin updates ticket status
+app.patch("/api/tickets/:id", async function (request, response) {
+  try {
+    const ticketId = request.params.id;
+    const newStatus = request.body.status;
+
+    if (newStatus !== "accepted" && newStatus !== "rejected") {
+      return response.status(400).json({ error: "Status must be accepted or rejected" });
+    }
+
+    let searchFilter = { _id: ticketId };
+
+    if (ObjectId.isValid(ticketId)) {
+      searchFilter = { _id: new ObjectId(ticketId) };
+    }
+
+    await tickets.updateOne(searchFilter, { $set: { status: newStatus } });
+
+    response.json({ success: true, status: newStatus });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
 
 // POST /api/bookings — books seats and sets status to "waiting for confirm"
 
