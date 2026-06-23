@@ -14,63 +14,104 @@ app.use(express.json());
 const client = new MongoClient(process.env.MONGODB_URI);
 const tickets = client.db("Tickify").collection("tickets");
 const bookings = client.db("Tickify").collection("bookings");
+const users = client.db("Tickify").collection("user");
 
 // Helper to safely find a ticket by ObjectId or String fallback
-async function findTicketById(id) {
-  if (!id) return null;
-  if (ObjectId.isValid(id)) {
-    const ticket = await tickets.findOne({ _id: new ObjectId(id) });
-    if (ticket) return ticket;
+async function findTicketById(ticketId) {
+  if (!ticketId) {
+    return null;
   }
-  return tickets.findOne({ _id: id });
+  
+  if (ObjectId.isValid(ticketId)) {
+    const ticketFound = await tickets.findOne({ _id: new ObjectId(ticketId) });
+    if (ticketFound) {
+      return ticketFound;
+    }
+  }
+  
+  const ticketFallback = await tickets.findOne({ _id: ticketId });
+  return ticketFallback;
 }
 
-// GET /api/tickets — returns all tickets, or just one vendor's if ?vendor_id= is passed
-app.get("/api/tickets", async (req, res) => {
+app.get("/api/users", async function (request, response) {
   try {
-    const filter = req.query.vendor_id ? { vendor_id: req.query.vendor_id } : {};
-    const allTickets = await tickets.find(filter).sort({ createdAt: -1 }).toArray();
-    res.json(allTickets);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const allUsers = await users.find().sort({ createdAt: -1 }).toArray();
+    response.json(allUsers);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
-
+// GET /api/tickets — returns all tickets, or just one vendor's if ?vendor_id= is passed
+app.get("/api/tickets", async function (request, response) {
+  try {
+    let filterObject = {};
+    if (request.query.vendor_id) {
+      filterObject = { vendor_id: request.query.vendor_id };
+    }
+    
+    const allTickets = await tickets.find(filterObject).sort({ createdAt: -1 }).toArray();
+    response.json(allTickets);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
 
 // GET /api/tickets/admin — all tickets for admin dashboard
-app.get("/api/tickets/admin", async (req, res) => {
+app.get("/api/tickets/admin", async function (request, response) {
   try {
     const allTickets = await tickets.find().sort({ createdAt: -1 }).toArray();
-    res.json(allTickets);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    response.json(allTickets);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
 // GET /api/tickets/:id — returns one ticket by ID
-app.get("/api/tickets/:id", async (req, res) => {
+app.get("/api/tickets/:id", async function (request, response) {
   try {
-    const ticket = await findTicketById(req.params.id);
-    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-    res.json(ticket);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const ticketId = request.params.id;
+    const ticket = await findTicketById(ticketId);
+    
+    if (!ticket) {
+      return response.status(404).json({ error: "Ticket not found" });
+    }
+    
+    response.json(ticket);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
 // POST /api/tickets — creates a new ticket with status "pending"
-
-app.post("/api/tickets", async (req, res) => {
+app.post("/api/tickets", async function (request, response) {
   try {
-    const { vendor_id, ...rest } = req.body;
-    if (!vendor_id) return res.status(400).json({ error: "vendor_id is required" });
+    const vendorId = request.body.vendor_id;
+    if (!vendorId) {
+      return response.status(400).json({ error: "vendor_id is required" });
+    }
 
-    const newTicket = { ...rest, vendor_id, status: "pending", createdAt: new Date() };
+    const newTicket = {
+      vendor_id: vendorId,
+      title: request.body.title,
+      from: request.body.from,
+      to: request.body.to,
+      transportType: request.body.transportType,
+      price: request.body.price,
+      quantity: request.body.quantity,
+      departureDateTime: request.body.departureDateTime,
+      vendorName: request.body.vendorName,
+      vendorEmail: request.body.vendorEmail,
+      status: "pending",
+      createdAt: new Date()
+    };
+
     const result = await tickets.insertOne(newTicket);
-    res.status(201).json({ ...newTicket, _id: result.insertedId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    newTicket._id = result.insertedId;
+    
+    response.status(201).json(newTicket);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
@@ -85,7 +126,6 @@ app.patch("/api/tickets/:id", async function (request, response) {
     }
 
     let searchFilter = { _id: ticketId };
-
     if (ObjectId.isValid(ticketId)) {
       searchFilter = { _id: new ObjectId(ticketId) };
     }
@@ -98,104 +138,130 @@ app.patch("/api/tickets/:id", async function (request, response) {
   }
 });
 
-
 // POST /api/bookings — books seats and sets status to "waiting for confirm"
-
-app.post("/api/bookings", async (req, res) => {
+app.post("/api/bookings", async function (request, response) {
   try {
-    const { ticket_id, user_id, userName, userEmail, seatsBooked = 1 } = req.body;
-
-    if (!ticket_id || !user_id) {
-      return res.status(400).json({ error: "ticket_id and user_id are required" });
+    const ticketId = request.body.ticket_id;
+    const userId = request.body.user_id;
+    const userName = request.body.userName;
+    const userEmail = request.body.userEmail;
+    
+    let seatsBooked = request.body.seatsBooked;
+    if (!seatsBooked) {
+      seatsBooked = 1;
     }
 
-    const ticket = await findTicketById(ticket_id);
-    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-    if (ticket.quantity < seatsBooked) return res.status(400).json({ error: "Not enough tickets available" });
+    if (!ticketId || !userId) {
+      return response.status(400).json({ error: "ticket_id and user_id are required" });
+    }
+
+    const ticket = await findTicketById(ticketId);
+    if (!ticket) {
+      return response.status(404).json({ error: "Ticket not found" });
+    }
+    
+    if (ticket.quantity < seatsBooked) {
+      return response.status(400).json({ error: "Not enough tickets available" });
+    }
 
     // Decrement ticket availability count
+    const remainingSeatsCount = -Number(seatsBooked);
+    await tickets.updateOne({ _id: ticket._id }, { $inc: { quantity: remainingSeatsCount } });
 
-    await tickets.updateOne({ _id: ticket._id }, { $inc: { quantity: -Number(seatsBooked) } });
+    const totalCalculatedPrice = Number(ticket.price) * Number(seatsBooked);
 
     const newBooking = {
-      ticket_id,
-      user_id,
-      userName,
-      userEmail,
+      ticket_id: ticketId,
+      user_id: userId,
+      userName: userName,
+      userEmail: userEmail,
       seatsBooked: Number(seatsBooked),
-      totalPrice: Number(ticket.price) * Number(seatsBooked),
+      totalPrice: totalCalculatedPrice,
       ticketTitle: ticket.title,
       departureDateTime: ticket.departureDateTime,
       status: "waiting for confirm", // Workflow change 1: default status
-      bookedAt: new Date(),
+      bookedAt: new Date()
     };
 
     const result = await bookings.insertOne(newBooking);
-    res.status(201).json({ ...newBooking, _id: result.insertedId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    newBooking._id = result.insertedId;
+
+    response.status(201).json(newBooking);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
 // GET /api/bookings — returns bookings for a user (?user_id=) or a vendor (?vendor_id=)
-
-app.get("/api/bookings", async (req, res) => {
+app.get("/api/bookings", async function (request, response) {
   try {
-    let filter = {};
+    let searchFilter = {};
 
-    if (req.query.user_id) {
-      filter = { user_id: req.query.user_id };
+    if (request.query.user_id) {
+      searchFilter = { user_id: request.query.user_id };
     } 
-    else if (req.query.vendor_id) {
-      const vendorTickets = await tickets.find({ vendor_id: req.query.vendor_id }).toArray();
-      const ticketIds = vendorTickets.flatMap((t) => [String(t._id), t._id]);
-      filter = { ticket_id: { $in: ticketIds } };
+    else if (request.query.vendor_id) {
+      const vendorTickets = await tickets.find({ vendor_id: request.query.vendor_id }).toArray();
+      
+      let ticketIdsArray = [];
+      for (let i = 0; i < vendorTickets.length; i++) {
+        const currentTicket = vendorTickets[i];
+        ticketIdsArray.push(String(currentTicket._id));
+        ticketIdsArray.push(currentTicket._id);
+      }
+      
+      searchFilter = { ticket_id: { $in: ticketIdsArray } };
     }
 
-    const allBookings = await bookings.find(filter).sort({ bookedAt: -1 }).toArray();
-    res.json(allBookings);
-  }
-   catch (err) {
-    res.status(500).json({ error: err.message });
+    const allBookings = await bookings.find(searchFilter).sort({ bookedAt: -1 }).toArray();
+    response.json(allBookings);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
 // PATCH /api/bookings/:id — Allows vendors to change status to "pay" or "rejected"
-
-app.patch("/api/bookings/:id", async (req, res) => {
+app.patch("/api/bookings/:id", async function (request, response) {
   try {
-    const { id } = req.params;
-    const { status } = req.body; // Expected values: "pay" or "rejected"
+    const bookingId = request.params.id;
+    const targetStatus = request.body.status;
 
-    if (!["pay", "rejected"].includes(status)) {
-      return res.status(400).json({ error: "Invalid status change targeted" });
+    if (targetStatus !== "pay" && targetStatus !== "rejected") {
+      return response.status(400).json({ error: "Invalid status change targeted" });
     }
 
     // Build standard multi-type selector check matching your schema structures
-
-    const filter = ObjectId.isValid(id)
-      ? { $or: [{ _id: new ObjectId(id) }, { _id: id }] }
-      : { _id: id };
-
-    const result = await bookings.updateOne(filter, { $set: { status } });
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ error: "Booking item not found" });
+    let searchFilter = { _id: bookingId };
+    if (ObjectId.isValid(bookingId)) {
+      searchFilter = { 
+        $or: [
+          { _id: new ObjectId(bookingId) }, 
+          { _id: bookingId }
+        ] 
+      };
     }
 
-    res.json({ success: true, status });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const result = await bookings.updateOne(searchFilter, { $set: { status: targetStatus } });
+
+    if (result.matchedCount === 0) {
+      return response.status(404).json({ error: "Booking item not found" });
+    }
+
+    response.json({ success: true, status: targetStatus });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
   }
 });
 
 async function start() {
   await client.connect();
   console.log("Connected to MongoDB");
-  app.listen(port, () => console.log(`Tickify server listening on port ${port}`));
+  app.listen(port, function () {
+    console.log("Tickify server listening on port " + port);
+  });
 }
 
-start().catch((err) => {
-  console.error("Failed to start server:", err);
+start().catch(function (error) {
+  console.error("Failed to start server:", error);
   process.exit(1);
 });
