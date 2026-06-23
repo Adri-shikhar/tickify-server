@@ -125,12 +125,12 @@ app.patch("/api/tickets/:id", async function (request, response) {
       return response.status(400).json({ error: "Status must be accepted or rejected" });
     }
 
-    let searchFilter = { _id: ticketId };
-    if (ObjectId.isValid(ticketId)) {
-      searchFilter = { _id: new ObjectId(ticketId) };
+    const ticket = await findTicketById(ticketId);
+    if (!ticket) {
+      return response.status(404).json({ error: "Ticket not found" });
     }
 
-    await tickets.updateOne(searchFilter, { $set: { status: newStatus } });
+    await tickets.updateOne({ _id: ticket._id }, { $set: { status: newStatus } });
 
     response.json({ success: true, status: newStatus });
   } catch (error) {
