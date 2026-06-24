@@ -80,7 +80,7 @@ app.get("/api/tickets/:id", route(async (req, res) => {
 }));
 
 app.post("/api/tickets", route(async (req, res) => {
-  const { vendor_id, title, from, to, transportType, price, quantity, departureDateTime, vendorName, vendorEmail } = req.body;
+  const { vendor_id, title, from, to, transportType, price, quantity, departureDateTime, vendorName, vendorEmail, imageUrl, perks } = req.body;
 
   if (!vendor_id) return res.status(400).json({ error: "vendor_id is required" });
 
@@ -95,6 +95,8 @@ app.post("/api/tickets", route(async (req, res) => {
     departureDateTime,
     vendorName,
     vendorEmail,
+    imageUrl: imageUrl || "",
+    perks: perks || {},
     status: "pending",
     createdAt: new Date(),
   };
@@ -102,6 +104,45 @@ app.post("/api/tickets", route(async (req, res) => {
   const result = await tickets.insertOne(newTicket);
   res.status(201).json({ ...newTicket, _id: result.insertedId });
 }));
+
+
+app.put("/api/tickets/:id", route(async (req, res) => {
+  const ticket = await findById(tickets, req.params.id);
+  if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+  if (ticket.status === "rejected") {
+    return res.status(400).json({ error: "Cannot update a rejected ticket" });
+  }
+  
+  const { title, from, to, transportType, price, quantity, departureDateTime, imageUrl, perks } = req.body;
+
+  await tickets.updateOne(
+    { _id: ticket._id },
+    {
+      $set: {
+        title,
+        from,
+        to,
+        transportType,
+        price,
+        quantity,
+        departureDateTime,
+        imageUrl: imageUrl || "",
+        perks: perks || {},
+      },
+    }
+  );
+
+  res.json({ success: true });
+}));
+
+app.delete("/api/tickets/:id", route(async (req, res) => {
+  const ticket = await findById(tickets, req.params.id);
+  if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+  await tickets.deleteOne({ _id: ticket._id });
+  res.json({ success: true });
+}));
+
 
 app.patch("/api/tickets/:id", route(async (req, res) => {
   const { status } = req.body;
