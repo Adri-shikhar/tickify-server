@@ -131,8 +131,6 @@ app.post("/api/bookings", route(async (req, res) => {
     return res.status(400).json({ error: "Not enough tickets available" });
   }
 
-  await tickets.updateOne({ _id: ticket._id }, { $inc: { quantity: -Number(seatsBooked) } });
-
   const newBooking = {
     ticket_id: String(ticket_id),
     user_id,
@@ -143,8 +141,11 @@ app.post("/api/bookings", route(async (req, res) => {
     seatsBooked: Number(seatsBooked),
     totalPrice: Number(ticket.price) * Number(seatsBooked),
     ticketTitle: ticket.title,
+    from: ticket.from || "",
+    to: ticket.to || "",
+    imageUrl: ticket.imageUrl || "",
     departureDateTime: ticket.departureDateTime,
-    status: "waiting for confirm",
+    status: "pending",
     bookedAt: new Date(),
   };
 
@@ -176,7 +177,7 @@ app.get("/api/bookings/:id", route(async (req, res) => {
 
 app.patch("/api/bookings/:id", route(async (req, res) => {
   const { status } = req.body;
-  if (status !== "pay" && status !== "rejected") {
+  if (status !== "accepted" && status !== "rejected") {
     return res.status(400).json({ error: "Invalid status" });
   }
 
@@ -221,9 +222,15 @@ app.post("/api/payments", route(async (req, res) => {
   };
 
   const result = await payments.insertOne(newPayment);
-// Update booking and ticket status to paid
+// Update booking to paid and reduce ticket quantity
   if (booking) {
     await bookings.updateOne({ _id: booking._id }, { $set: { status: "paid" } });
+    if (ticket) {
+      await tickets.updateOne(
+        { _id: ticket._id },
+        { $inc: { quantity: -Number(booking.seatsBooked || 1) } }
+      );
+    }
   }
 
 
