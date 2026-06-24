@@ -73,6 +73,24 @@ app.get("/api/tickets/admin", route(async (req, res) => {
   res.json(await tickets.find().sort({ createdAt: -1 }).toArray());
 }));
 
+app.get("/api/tickets/advertised", route(async (req, res) => {
+  const list = await tickets
+    .find({ isAdvertised: true, status: "accepted" })
+    .sort({ createdAt: -1 })
+    .limit(6)
+    .toArray();
+  res.json(list);
+}));
+
+app.get("/api/tickets/latest", route(async (req, res) => {
+  const list = await tickets
+    .find({ status: "accepted" })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .toArray();
+  res.json(list);
+}));
+
 app.get("/api/tickets/:id", route(async (req, res) => {
   const ticket = await findById(tickets, req.params.id);
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
@@ -98,6 +116,7 @@ app.post("/api/tickets", route(async (req, res) => {
     imageUrl: imageUrl || "",
     perks: perks || {},
     status: "pending",
+    isAdvertised: false,
     createdAt: new Date(),
   };
 
@@ -155,6 +174,27 @@ app.patch("/api/tickets/:id", route(async (req, res) => {
 
   await tickets.updateOne({ _id: ticket._id }, { $set: { status } });
   res.json({ success: true, status });
+}));
+
+app.patch("/api/tickets/:id/advertise", route(async (req, res) => {
+  const { isAdvertised } = req.body;
+  const ticket = await findById(tickets, req.params.id);
+
+  if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+  if (ticket.status !== "accepted") {
+    return res.status(400).json({ error: "Only accepted tickets can be advertised" });
+  }
+
+  if (isAdvertised === true && !ticket.isAdvertised) {
+    const count = await tickets.countDocuments({ isAdvertised: true });
+    if (count >= 6) {
+      return res.status(400).json({ error: "You can advertise maximum 6 tickets" });
+    }
+  }
+
+  await tickets.updateOne({ _id: ticket._id }, { $set: { isAdvertised: !!isAdvertised } });
+  res.json({ success: true, isAdvertised: !!isAdvertised });
 }));
 
 // --- Bookings ---
