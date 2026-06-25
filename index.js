@@ -36,11 +36,6 @@ async function findById(collection, id) {
   return collection.findOne({ $or: query });
 }
 
-const logger = (req, res, next) => {
-  console.log('logger',req.headers);
-  next();
-};
-
 const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Unauthorized" });
@@ -57,27 +52,32 @@ const verifyToken = async (req, res, next) => {
 };
 
  
+const requireTokenIfVendorQuery = (req, res, next) => {
+  if (req.query.vendor_id) return verifyToken(req, res, next);
+  next();
+};
+
 // --- Users ---
 
-app.get("/api/users", route(async (req, res) => {
+app.get("/api/users", verifyToken, route(async (req, res) => {
   res.json(await users.find().sort({ createdAt: -1 }).toArray());
 }));
 
-app.patch("/api/users/:id/vendor", route(async (req, res) => {
+app.patch("/api/users/:id/vendor", verifyToken, route(async (req, res) => {
   const user = await findById(users, req.params.id);
   if (!user) return res.status(404).json({ error: "User not found" });
   await users.updateOne({ _id: user._id }, { $set: { role: "vendor" } });
   res.json({ success: true, role: "vendor" });
 }));
 
-app.patch("/api/users/:id/admin", route(async (req, res) => {
+app.patch("/api/users/:id/admin", verifyToken, route(async (req, res) => {
   const user = await findById(users, req.params.id);
   if (!user) return res.status(404).json({ error: "User not found" });
   await users.updateOne({ _id: user._id }, { $set: { role: "admin" } });
   res.json({ success: true, role: "admin" });
 }));
 
-app.patch("/api/users/:id/fraud", route(async (req, res) => {
+app.patch("/api/users/:id/fraud", verifyToken, route(async (req, res) => {
   const user = await findById(users, req.params.id);
   if (!user) return res.status(404).json({ error: "User not found" });
   await users.updateOne({ _id: user._id }, { $set: { isFraud: true } });
@@ -86,12 +86,12 @@ app.patch("/api/users/:id/fraud", route(async (req, res) => {
 
 // --- Tickets ---
 
-app.get("/api/tickets", route(async (req, res) => {
+app.get("/api/tickets", requireTokenIfVendorQuery, route(async (req, res) => {
   const filter = req.query.vendor_id ? { vendor_id: req.query.vendor_id } : {};
   res.json(await tickets.find(filter).sort({ createdAt: -1 }).toArray());
 }));
 
-app.get("/api/tickets/admin", route(async (req, res) => {
+app.get("/api/tickets/admin", verifyToken, route(async (req, res) => {
   res.json(await tickets.find().sort({ createdAt: -1 }).toArray());
 }));
 
@@ -113,13 +113,13 @@ app.get("/api/tickets/latest", route(async (req, res) => {
   res.json(list);
 }));
 
-app.get("/api/tickets/:id", route(async (req, res) => {
+app.get("/api/tickets/:id", verifyToken, route(async (req, res) => {
   const ticket = await findById(tickets, req.params.id);
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
   res.json(ticket);
 }));
 
-app.post("/api/tickets", logger, route(async (req, res) => {
+app.post("/api/tickets", verifyToken, route(async (req, res) => {
   const { vendor_id, title, from, to, transportType, price, quantity, departureDateTime, vendorName, vendorEmail, imageUrl, perks } = req.body;
 
   if (!vendor_id) return res.status(400).json({ error: "vendor_id is required" });
@@ -147,7 +147,7 @@ app.post("/api/tickets", logger, route(async (req, res) => {
 }));
 
 
-app.put("/api/tickets/:id", route(async (req, res) => {
+app.put("/api/tickets/:id", verifyToken, route(async (req, res) => {
   const ticket = await findById(tickets, req.params.id);
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
   if (ticket.status === "rejected") {
@@ -176,7 +176,7 @@ app.put("/api/tickets/:id", route(async (req, res) => {
   res.json({ success: true });
 }));
 
-app.delete("/api/tickets/:id", route(async (req, res) => {
+app.delete("/api/tickets/:id", verifyToken, route(async (req, res) => {
   const ticket = await findById(tickets, req.params.id);
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
 
@@ -185,7 +185,7 @@ app.delete("/api/tickets/:id", route(async (req, res) => {
 }));
 
 
-app.patch("/api/tickets/:id", route(async (req, res) => {
+app.patch("/api/tickets/:id", verifyToken, route(async (req, res) => {
   const { status } = req.body;
   if (status !== "accepted" && status !== "rejected") {
     return res.status(400).json({ error: "Status must be accepted or rejected" });
@@ -198,7 +198,7 @@ app.patch("/api/tickets/:id", route(async (req, res) => {
   res.json({ success: true, status });
 }));
 
-app.patch("/api/tickets/:id/advertise", route(async (req, res) => {
+app.patch("/api/tickets/:id/advertise", verifyToken, route(async (req, res) => {
   const { isAdvertised } = req.body;
   const ticket = await findById(tickets, req.params.id);
 
@@ -221,7 +221,7 @@ app.patch("/api/tickets/:id/advertise", route(async (req, res) => {
 
 // --- Bookings ---
 
-app.post("/api/bookings", logger, verifyToken, route(async (req, res) => {
+app.post("/api/bookings", verifyToken, route(async (req, res) => {
   const { ticket_id, user_id, userName, userEmail, vendor_id, seatsBooked = 1 } = req.body;
 
   if (!ticket_id || !user_id) {
@@ -272,13 +272,13 @@ app.get("/api/bookings", verifyToken, route(async (req, res) => {
   res.json([]);
 }));
 
-app.get("/api/bookings/:id", route(async (req, res) => {
+app.get("/api/bookings/:id", verifyToken, route(async (req, res) => {
   const booking = await findById(bookings, req.params.id);
   if (!booking) return res.status(404).json({ error: "Booking not found" });
   res.json(booking);
 }));
 
-app.patch("/api/bookings/:id", route(async (req, res) => {
+app.patch("/api/bookings/:id", verifyToken, route(async (req, res) => {
   const { status } = req.body;
   if (status !== "accepted" && status !== "rejected") {
     return res.status(400).json({ error: "Invalid status" });
@@ -293,7 +293,7 @@ app.patch("/api/bookings/:id", route(async (req, res) => {
 
 // --- Payments (POST only) ---
 
-app.post("/api/payments", route(async (req, res) => {
+app.post("/api/payments", verifyToken, route(async (req, res) => {
   const { session_id, user_id, booking_id, currency, customerEmail, payment_intent_id } = req.body;
 
   if (!session_id || !user_id) {
@@ -340,7 +340,7 @@ app.post("/api/payments", route(async (req, res) => {
   res.status(201).json({ ...newPayment, _id: result.insertedId });
 }));
 
-app.get("/api/payments", route(async (req, res) => {
+app.get("/api/payments", verifyToken, route(async (req, res) => {
   if (req.query.vendor_id) {
     const list = await payments
       .find({ vendor_id: req.query.vendor_id })
