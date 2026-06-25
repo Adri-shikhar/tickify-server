@@ -294,7 +294,7 @@ app.patch("/api/bookings/:id", verifyToken, route(async (req, res) => {
 // --- Payments (POST only) ---
 
 app.post("/api/payments", verifyToken, route(async (req, res) => {
-  const { session_id, user_id, booking_id, currency, customerEmail, payment_intent_id } = req.body;
+  const { session_id, user_id, booking_id, currency, customerEmail, payment_intent_id, paidAt } = req.body;
 
   if (!session_id || !user_id) {
     return res.status(400).json({ error: "session_id and user_id are required" });
@@ -320,7 +320,7 @@ app.post("/api/payments", verifyToken, route(async (req, res) => {
     status: "paid",
     customerEmail: customerEmail || "",
     payment_intent_id: payment_intent_id || "",
-    paidAt: new Date(),
+    paidAt: paidAt ? new Date(paidAt) : new Date(),
     createdAt: new Date(),
   };
 
