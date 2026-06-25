@@ -17,6 +17,7 @@ const tickets = db.collection("tickets");
 const bookings = db.collection("bookings");
 const payments = db.collection("payments");
 const users = db.collection("user");
+const sessions = db.collection("session");
 
 function route(handler) {
   return async (req, res) => {
@@ -35,6 +36,27 @@ async function findById(collection, id) {
   return collection.findOne({ $or: query });
 }
 
+const logger = (req, res, next) => {
+  console.log('logger',req.headers);
+  next();
+};
+
+const verifyToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+
+  const session = await sessions.findOne({ token });
+  if (!session?.userId) return res.status(401).json({ error: "Unauthorized" });
+
+  const user = await findById(users, session.userId);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  req.user = user;
+  req.session = session;
+  next();
+};
+
+ 
 // --- Users ---
 
 app.get("/api/users", route(async (req, res) => {
@@ -97,7 +119,7 @@ app.get("/api/tickets/:id", route(async (req, res) => {
   res.json(ticket);
 }));
 
-app.post("/api/tickets", route(async (req, res) => {
+app.post("/api/tickets", logger, route(async (req, res) => {
   const { vendor_id, title, from, to, transportType, price, quantity, departureDateTime, vendorName, vendorEmail, imageUrl, perks } = req.body;
 
   if (!vendor_id) return res.status(400).json({ error: "vendor_id is required" });
@@ -199,7 +221,7 @@ app.patch("/api/tickets/:id/advertise", route(async (req, res) => {
 
 // --- Bookings ---
 
-app.post("/api/bookings", route(async (req, res) => {
+app.post("/api/bookings", logger, verifyToken, route(async (req, res) => {
   const { ticket_id, user_id, userName, userEmail, vendor_id, seatsBooked = 1 } = req.body;
 
   if (!ticket_id || !user_id) {
@@ -234,7 +256,7 @@ app.post("/api/bookings", route(async (req, res) => {
   res.status(201).json({ ...newBooking, _id: result.insertedId });
 }));
 
-app.get("/api/bookings", route(async (req, res) => {
+app.get("/api/bookings", verifyToken, route(async (req, res) => {
   if (req.query.user_id) {
     const list = await bookings.find({ user_id: req.query.user_id }).sort({ bookedAt: -1 }).toArray();
     return res.json(list);
