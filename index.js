@@ -362,6 +362,8 @@ app.get("/api/payments", verifyToken, route(async (req, res) => {
 
 // --- Start ---
 
+
+
 async function start() {
   await client.connect();
   console.log("Connected to MongoDB");
